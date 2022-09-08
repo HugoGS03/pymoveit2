@@ -1,4 +1,5 @@
 import threading
+import time
 from typing import List, Optional, Tuple, Union
 
 from action_msgs.msg import GoalStatus
@@ -49,7 +50,8 @@ class MoveIt2:
         execute_via_moveit: bool = False,
         ignore_new_calls_while_executing: bool = False,
         callback_group: Optional[CallbackGroup] = None,
-        follow_joint_trajectory_action_name: str = "joint_trajectory_controller/follow_joint_trajectory",
+        follow_joint_trajectory_action_name: str = "/arm_controller/follow_joint_trajectory",
+        namespace: str = "",
     ):
         """
         Construct an instance of `MoveIt2` interface.
@@ -59,7 +61,7 @@ class MoveIt2:
           - `end_effector_name` - Name of the robot end effector
           - `group_name` - Name of the planning group for robot arm
           - `execute_via_moveit` - Flag that enables execution via MoveGroup action (MoveIt 2)
-                                   FollowJointTrajectory action (controller) is employed otherwise
+                                   FollowJointTrajectory action (controller) is employed othewise
                                    together with a separate planning service client
           - `ignore_new_calls_while_executing` - Flag to ignore requests to execute new trajectories
                                                  while previous is still being executed
@@ -73,7 +75,7 @@ class MoveIt2:
         # Create subscriber for current joint states
         self._node.create_subscription(
             msg_type=JointState,
-            topic="joint_states",
+            topic= "joint_states",
             callback=self.__joint_state_callback,
             qos_profile=QoSProfile(
                 durability=QoSDurabilityPolicy.VOLATILE,
@@ -89,7 +91,7 @@ class MoveIt2:
             self.__move_action_client = ActionClient(
                 node=self._node,
                 action_type=MoveGroup,
-                action_name="move_action",
+                action_name= namespace + "/move_action",
                 goal_service_qos_profile=QoSProfile(
                     durability=QoSDurabilityPolicy.VOLATILE,
                     reliability=QoSReliabilityPolicy.RELIABLE,
@@ -126,7 +128,7 @@ class MoveIt2:
             # Otherwise create a separate service client for planning
             self._plan_kinematic_path_service = self._node.create_client(
                 srv_type=GetMotionPlan,
-                srv_name="plan_kinematic_path",
+                srv_name= namespace + "/plan_kinematic_path",
                 qos_profile=QoSProfile(
                     durability=QoSDurabilityPolicy.VOLATILE,
                     reliability=QoSReliabilityPolicy.RELIABLE,
@@ -140,7 +142,7 @@ class MoveIt2:
         # Create a separate service client for Cartesian planning
         self._plan_cartesian_path_service = self._node.create_client(
             srv_type=GetCartesianPath,
-            srv_name="compute_cartesian_path",
+            srv_name= namespace + "/compute_cartesian_path",
             qos_profile=QoSProfile(
                 durability=QoSDurabilityPolicy.VOLATILE,
                 reliability=QoSReliabilityPolicy.RELIABLE,
@@ -155,7 +157,7 @@ class MoveIt2:
         self.__follow_joint_trajectory_action_client = ActionClient(
             node=self._node,
             action_type=FollowJointTrajectory,
-            action_name=follow_joint_trajectory_action_name,
+            action_name= namespace + follow_joint_trajectory_action_name,
             goal_service_qos_profile=QoSProfile(
                 durability=QoSDurabilityPolicy.VOLATILE,
                 reliability=QoSReliabilityPolicy.RELIABLE,
@@ -190,7 +192,7 @@ class MoveIt2:
         )
 
         self.__collision_object_publisher = self._node.create_publisher(
-            CollisionObject, "/collision_object", 10
+            CollisionObject, namespace + "/collision_object", 10
         )
 
         self.__joint_state_mutex = threading.Lock()
@@ -202,7 +204,7 @@ class MoveIt2:
             end_effector=end_effector_name,
         )
 
-        # Flag to determine whether to execute trajectories via MoveIt2, or rather by calling a separate action with the controller itself
+        # Flag to detemine whether to execute trajectories via MoveIt2, or rather by calling a separate action with the controller itself
         # Applies to `move_to_pose()` and `move_to_configuraion()`
         self.__execute_via_moveit = execute_via_moveit
 
@@ -217,6 +219,7 @@ class MoveIt2:
 
         # Internal states that monitor the current motion requests and execution
         self.__is_motion_requested = False
+        self.move_action_status = GoalStatus.STATUS_SUCCEEDED
         self.__is_executing = False
         self.__wait_until_executed_rate = self._node.create_rate(1000.0)
 
@@ -400,6 +403,7 @@ class MoveIt2:
         elif self.joint_state is not None:
             self.__move_action_goal.request.start_state.joint_state = self.joint_state
 
+
         # Plan trajectory by sending a goal (blocking)
         if cartesian:
             joint_trajectory = self._plan_cartesian_path()
@@ -416,7 +420,7 @@ class MoveIt2:
 
         return joint_trajectory
 
-    def execute(self, joint_trajectory: JointTrajectory):
+    def execute(self, joint_trajectory: JointTrajectory, sync: bool = False):
         """
         Execute joint_trajectory by communicating directly with the controller.
         """
@@ -439,7 +443,7 @@ class MoveIt2:
             self.__is_motion_requested = False
             return
 
-        self._send_goal_async_follow_joint_trajectory(goal=follow_joint_trajectory_goal)
+        self._send_goal_async_follow_joint_trajectory(goal=follow_joint_trajectory_goal, wait_until_response=sync)
 
     def wait_until_executed(self):
         """
@@ -657,9 +661,9 @@ class MoveIt2:
 
     def create_new_goal_constraint(self):
         """
-        Create a new set of goal constraints that will be set together with the request. Each
+        Create a new set of goal contraints that will be set together with the request. Each
         subsequent setting of goals with `set_joint_goal()`, `set_pose_goal()` and others will be
-        added under this newly created set of constraints.
+        added under this newly created set of contraints.
         """
 
         self.__move_action_goal.request.goal_constraints.append(Constraints())
@@ -949,11 +953,11 @@ class MoveIt2:
             stamp
         )
         for (
-            constraints
+            contraints
         ) in self.__kinematic_path_request.motion_plan_request.goal_constraints:
-            for position_constraint in constraints.position_constraints:
+            for position_constraint in contraints.position_constraints:
                 position_constraint.header.stamp = stamp
-            for orientation_constraint in constraints.orientation_constraints:
+            for orientation_constraint in contraints.orientation_constraints:
                 orientation_constraint.header.stamp = stamp
 
         if not self._plan_kinematic_path_service.wait_for_service(
@@ -964,11 +968,16 @@ class MoveIt2:
             )
             return None
 
+        start_time = time.time()        
+ 
         res = self._plan_kinematic_path_service.call(
             self.__kinematic_path_request
         ).motion_plan_response
 
+        elapsed_time = time.time() - start_time
+        print(f"Time taken for kinematic {elapsed_time}")
         if MoveItErrorCodes.SUCCESS == res.error_code.val:
+            
             return res.trajectory.joint_trajectory
         else:
             self._node.get_logger().warn(
@@ -1030,9 +1039,11 @@ class MoveIt2:
                 f"Service '{self._plan_cartesian_path_service.srv_name}' is not yet available. Better luck next time!"
             )
             return None
-
+        #self.__cartesian_path_request.avoid_collisions = True
+        start_time = time.time()        
         res = self._plan_cartesian_path_service.call(self.__cartesian_path_request)
-
+        elapsed_time = time.time() - start_time
+        print(f"Time taken {elapsed_time}")
         if MoveItErrorCodes.SUCCESS == res.error_code.val:
             return res.solution.joint_trajectory
         else:
@@ -1057,6 +1068,8 @@ class MoveIt2:
             self.__is_motion_requested = False
             return
 
+        #import pdb 
+        #pdb.set_trace()
         self.__send_goal_future_move_action = self.__move_action_client.send_goal_async(
             goal=self.__move_action_goal,
             feedback_callback=None,
@@ -1085,12 +1098,12 @@ class MoveIt2:
         )
 
     def __result_callback_move_action(self, res):
-
+    
         if res.result().status != GoalStatus.STATUS_SUCCEEDED:
             self._node.get_logger().error(
                 f"Action '{self.__move_action_client._action_name}' was unsuccessful: {res.result().status}."
             )
-
+        self.move_action_status = res.result().status
         self.__is_executing = False
 
     def _send_goal_async_follow_joint_trajectory(
@@ -1160,7 +1173,7 @@ class MoveIt2:
             self._node.get_logger().error(
                 f"Action '{self.__follow_joint_trajectory_action_client._action_name}' was unsuccessful: {res.result().status}."
             )
-
+        self.move_action_status = res.result().status
         self.__is_executing = False
 
     @classmethod
@@ -1197,8 +1210,8 @@ class MoveIt2:
         # move_action_goal.planning_options.look_around = "Ignored"
         # move_action_goal.planning_options.look_around_attempts = "Ignored"
         # move_action_goal.planning_options.max_safe_execution_cost = "Ignored"
-        # move_action_goal.planning_options.replan = "Ignored"
-        # move_action_goal.planning_options.replan_attempts = "Ignored"
+        move_action_goal.planning_options.replan = True
+        move_action_goal.planning_options.replan_attempts = 5
         # move_action_goal.planning_options.replan_delay = "Ignored"
 
         return move_action_goal

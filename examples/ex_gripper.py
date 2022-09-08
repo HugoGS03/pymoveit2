@@ -13,7 +13,8 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
 
 from pymoveit2 import MoveIt2Gripper
-from pymoveit2.robots import panda
+from pymoveit2.robots import panda as panda
+
 
 
 def main(args=None):
@@ -40,6 +41,7 @@ def main(args=None):
         closed_gripper_joint_positions=panda.CLOSED_GRIPPER_JOINT_POSITIONS,
         gripper_group_name=panda.MOVE_GROUP_GRIPPER,
         callback_group=callback_group,
+        skip_planning=False
     )
 
     # Spin the node in background thread(s)

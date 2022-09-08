@@ -14,6 +14,7 @@ from rclpy.node import Node
 
 from pymoveit2 import GripperCommand
 from pymoveit2.robots import panda
+from pymoveit2.robots import ur5
 
 
 def main(args=None):
@@ -35,9 +36,9 @@ def main(args=None):
     # Create MoveIt 2 gripper interface
     moveit2_gripper = GripperCommand(
         node=node,
-        gripper_joint_names=panda.gripper_joint_names(),
-        open_gripper_joint_positions=panda.OPEN_GRIPPER_JOINT_POSITIONS,
-        closed_gripper_joint_positions=panda.CLOSED_GRIPPER_JOINT_POSITIONS,
+        gripper_joint_names=ur5.gripper_joint_names(),
+        open_gripper_joint_positions=ur5.OPEN_GRIPPER_JOINT_POSITIONS,
+        closed_gripper_joint_positions=ur5.CLOSED_GRIPPER_JOINT_POSITIONS,
         max_effort=10.0,
         ignore_new_calls_while_executing=True,
         callback_group=callback_group,

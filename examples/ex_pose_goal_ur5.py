@@ -12,8 +12,11 @@ from rclpy.node import Node
 
 from pymoveit2 import MoveIt2
 from pymoveit2 import MoveIt2Gripper
-import time
-from pymoveit2.robots import ur5 as robot
+
+from pymoveit2.robots import ur5
+
+
+    
 
 def main(args=None):
 
@@ -26,26 +29,24 @@ def main(args=None):
 
 
     # Declare parameters for position and orientation
-    moveit_node.declare_parameter("position", [0.7, 0.0, 0.04])
+    moveit_node.declare_parameter("position", [0.4, 0.6, 0.05])
     moveit_node.declare_parameter("quat_xyzw", [1.0, 0.0, 0.0, 0.0])
     moveit_node.declare_parameter("cartesian", True)
-    moveit_node.declare_parameter("namespace", "/robot1")
-    namespace = moveit_node.get_parameter("namespace").get_parameter_value().string_value
 
-    print(namespace)
+
+
     # Create callback group that allows execution of callbacks in parallel without restrictions
     callback_group = ReentrantCallbackGroup()
-    print(robot.joint_names())
+
     # Create MoveIt 2 interface
     moveit2 = MoveIt2(
         node=moveit_node,
-        joint_names=robot.joint_names(),
-        base_link_name=robot.base_link_name(),
-        end_effector_name=robot.end_effector_name(),
-        group_name=robot.MOVE_GROUP_ARM,
+        joint_names=ur5.joint_names(),
+        base_link_name=ur5.base_link_name(),
+        end_effector_name=ur5.end_effector_name(),
+        group_name=ur5.MOVE_GROUP_ARM,
         callback_group=callback_group,
         execute_via_moveit=True,
-        namespace=namespace,
     )
 
     # Create node for this example
@@ -55,21 +56,20 @@ def main(args=None):
         "action",
         "toggle",
     )
-    '''
     # Create MoveIt 2 gripper interface
     moveit2_gripper = MoveIt2Gripper(
         node=gripper_node,
-        gripper_joint_names=robot.gripper_joint_names(),
-        open_gripper_joint_positions=robot.OPEN_GRIPPER_JOINT_POSITIONS,
-        closed_gripper_joint_positions=robot.CLOSED_GRIPPER_JOINT_POSITIONS,
-        gripper_group_name=robot.MOVE_GROUP_GRIPPER,
+        gripper_joint_names=ur5.gripper_joint_names(),
+        open_gripper_joint_positions=ur5.OPEN_GRIPPER_JOINT_POSITIONS,
+        closed_gripper_joint_positions=ur5.CLOSED_GRIPPER_JOINT_POSITIONS,
+        gripper_group_name=ur5.MOVE_GROUP_GRIPPER,
         callback_group=callback_group,
     )
-    '''
+
     # Spin the node in background thread(s)
     executor = rclpy.executors.MultiThreadedExecutor(2)
     executor.add_node(moveit_node)
-    #executor.add_node(gripper_node)
+    executor.add_node(gripper_node)
     executor_thread = Thread(target=executor.spin, daemon=True, args=())
     executor_thread.start()
 
@@ -79,9 +79,9 @@ def main(args=None):
     cartesian = moveit_node.get_parameter("cartesian").get_parameter_value().bool_value
 
     period_s = 1.0
-    #rate = gripper_node.create_rate(1 / period_s)
+    rate = gripper_node.create_rate(1 / period_s)
 # Get parameter
-    #action = gripper_node.get_parameter("action").get_parameter_value().string_value
+    action = gripper_node.get_parameter("action").get_parameter_value().string_value
 
   
     # Move to pose

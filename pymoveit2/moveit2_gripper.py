@@ -25,7 +25,7 @@ class MoveIt2Gripper(MoveIt2):
         skip_planning: bool = False,
         skip_planning_fixed_motion_duration: float = 0.5,
         callback_group: Optional[CallbackGroup] = None,
-        follow_joint_trajectory_action_name: str = "gripper_trajectory_controller/follow_joint_trajectory",
+        follow_joint_trajectory_action_name: str = "gripper_controller/follow_joint_trajectory",
     ):
         """
         Construct an instance of `MoveIt2Gripper` interface.
@@ -35,7 +35,7 @@ class MoveIt2Gripper(MoveIt2):
           - `closed_gripper_joint_positions` - Configuration of gripper joints when fully closed
           - `gripper_group_name` - Name of the planning group for robot gripper
           - `execute_via_moveit` - Flag that enables execution via MoveGroup action (MoveIt 2)
-                                   FollowJointTrajectory action (controller) is employed otherwise
+                                   FollowJointTrajectory action (controller) is employed othewise
                                    together with a separate planning service client
           - `ignore_new_calls_while_executing` - Flag to ignore requests to execute new trajectories
                                                  while previous is still being executed
