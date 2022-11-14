@@ -22,9 +22,6 @@ def main(args=None):
     # Create node for this example
     moveit_node = Node("ex_pose_goal")
 
-
-
-
     # Declare parameters for position and orientation
     moveit_node.declare_parameter("position", [0.7, 0.0, 0.04])
     moveit_node.declare_parameter("quat_xyzw", [1.0, 0.0, 0.0, 0.0])
@@ -69,7 +66,7 @@ def main(args=None):
     # Spin the node in background thread(s)
     executor = rclpy.executors.MultiThreadedExecutor(2)
     executor.add_node(moveit_node)
-    #executor.add_node(gripper_node)
+
     executor_thread = Thread(target=executor.spin, daemon=True, args=())
     executor_thread.start()
 
@@ -78,22 +75,16 @@ def main(args=None):
     quat_xyzw = moveit_node.get_parameter("quat_xyzw").get_parameter_value().double_array_value
     cartesian = moveit_node.get_parameter("cartesian").get_parameter_value().bool_value
 
-    period_s = 1.0
-    #rate = gripper_node.create_rate(1 / period_s)
-# Get parameter
-    #action = gripper_node.get_parameter("action").get_parameter_value().string_value
-
-  
     # Move to pose
     moveit_node.get_logger().info(
         f"Moving to {{position: {list(position)}, quat_xyzw: {list(quat_xyzw)}}}"
     )
+
     moveit2.move_to_pose(position=position, quat_xyzw=quat_xyzw, cartesian=cartesian)
     moveit2.wait_until_executed()
     '''
     moveit2_gripper.close()
     moveit2_gripper.wait_until_executed()
-    
     moveit2_gripper.open()
     moveit2_gripper.wait_until_executed()
     moveit2_gripper.close()

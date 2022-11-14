@@ -1,7 +1,7 @@
 import threading
 import time
 from typing import List, Optional, Tuple, Union
-
+from std_msgs.msg import Float64
 from action_msgs.msg import GoalStatus
 from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
@@ -32,7 +32,6 @@ from rclpy.qos import (
 from sensor_msgs.msg import JointState
 from shape_msgs.msg import Mesh, MeshTriangle, SolidPrimitive
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-
 
 class MoveIt2:
     """
@@ -68,11 +67,11 @@ class MoveIt2:
           - `callback_group` - Optional callback group to use for ROS 2 communication (topics/services/actions)
           - `follow_joint_trajectory_action_name` - Name of the action server for the controller
         """
-
         self._node = node
         self._callback_group = callback_group
 
         # Create subscriber for current joint states
+
         self._node.create_subscription(
             msg_type=JointState,
             topic= "joint_states",
@@ -221,7 +220,7 @@ class MoveIt2:
         self.__is_motion_requested = False
         self.move_action_status = GoalStatus.STATUS_SUCCEEDED
         self.__is_executing = False
-        self.__wait_until_executed_rate = self._node.create_rate(1000.0)
+        self.__wait_until_executed_rate = self._node.create_rate(10.0)  #set rate to 10 otherwise too much cpu usage
 
         # Event that enables waiting until async future is done
         self.__future_done_event = threading.Event()
@@ -237,6 +236,7 @@ class MoveIt2:
         weight_position: float = 1.0,
         cartesian: bool = False,
         weight_orientation: float = 1.0,
+        waypoints: Optional[Pose] = None,
     ):
         """
         Plan and execute motion based on previously set goals. Optional arguments can be
@@ -262,8 +262,12 @@ class MoveIt2:
                 weight_position=weight_position,
                 weight_orientation=weight_orientation,
             )
+            self.__move_action_goal.request.start_state.is_diff = True
+            #self._node.get_logger().info(f"start_state = {self.__move_action_goal.request.start_state}")
             # Define starting state as the current state
+            #self.__move_action_goal.request.start_state = None
             if self.joint_state is not None:
+
                 self.__move_action_goal.request.start_state.joint_state = (
                     self.joint_state
                 )
@@ -273,9 +277,7 @@ class MoveIt2:
             self.clear_goal_constraints()
 
         else:
-            # Plan via MoveIt 2 and then execute directly with the controller
-            self.execute(
-                self.plan(
+            trajectory = self.plan(
                     position=position,
                     quat_xyzw=quat_xyzw,
                     frame_id=frame_id,
@@ -284,7 +286,11 @@ class MoveIt2:
                     weight_position=weight_position,
                     weight_orientation=weight_orientation,
                     cartesian=cartesian,
+                    waypoints=waypoints,
                 )
+            # Plan via MoveIt 2 and then execute directly with the controller
+            self.execute(
+                trajectory
             )
 
     def move_to_configuration(
@@ -354,6 +360,8 @@ class MoveIt2:
         weight_joint_position: float = 1.0,
         start_joint_state: Optional[Union[JointState, List[float]]] = None,
         cartesian: bool = False,
+        max_step: float = 0.0025,
+        waypoints: Optional[Pose] = None,
     ) -> Optional[JointTrajectory]:
         """
         Plan motion based on previously set goals. Optional arguments can be passed in to
@@ -406,7 +414,7 @@ class MoveIt2:
 
         # Plan trajectory by sending a goal (blocking)
         if cartesian:
-            joint_trajectory = self._plan_cartesian_path()
+            joint_trajectory = self._plan_cartesian_path(max_step=max_step, frame_id=frame_id, waypoints=waypoints)
         else:
             if self.__execute_via_moveit:
                 # Use action client
@@ -482,6 +490,125 @@ class MoveIt2:
             wait_until_response=sync,
         )
 
+    def set_path_constraint(
+        self,
+        position: Union[Point, Tuple[float, float, float]],
+        frame_id: Optional[str] = None,
+        target_link: Optional[str] = None,
+        tolerance: float = 0.001,
+        weight: float = 1.0,
+    ):
+        """
+        Set Cartesian position goal of `target_link` with respect to `frame_id`.
+          - `frame_id` defaults to the base link
+          - `target_link` defaults to end effector
+        """
+
+        # Create new position constraint
+        constraint = PositionConstraint()
+
+        # Define reference frame and target link
+        constraint.header.frame_id = (
+            frame_id if frame_id is not None else self.__base_link_name
+        )
+        constraint.link_name = (
+            target_link if target_link is not None else self.__end_effector_name
+        )
+        '''
+        # Define target position
+        constraint.constraint_region.primitive_poses.append(Pose())
+        if isinstance(position, Point):
+            constraint.constraint_region.primitive_poses[0].position = position
+        else:
+            constraint.constraint_region.primitive_poses[0].position.x = float(
+                position[0]
+            )
+            constraint.constraint_region.primitive_poses[0].position.y = float(
+                position[1]
+            )
+            constraint.constraint_region.primitive_poses[0].position.z = float(
+                position[2]
+            )
+        '''
+        '''
+        box = SolidPrimitive()
+        box.type = 1
+        box.dimensions = [0.3, .3, .3]
+        constraint.constraint_region.primitives.append(box)
+        # Define goal region as a sphere with radius equal to the tolerance
+        #constraint.constraint_region.primitives.append(SolidPrimitive())
+        #constraint.constraint_region.primitives[0].type = 2  # Sphere
+        #constraint.constraint_region.primitives[0].dimensions = [tolerance]
+        box_pose = Pose()
+        box_pose.position.x = 0.0
+        box_pose.position.y = 0.0
+        box_pose.position.z = 0.0
+        box_pose.orientation.w = 1.0
+        constraint.constraint_region.primitive_poses.append(box_pose)
+
+        # Set weight of the constraint
+        constraint.weight = weight
+        '''
+
+        joint_constraint_list = []
+
+
+        joint_constraint2 = JointConstraint()
+        joint_constraint2.joint_name = 'elbow_joint'
+        joint_constraint2.position = 2.0
+        joint_constraint2.tolerance_above = 1.0
+        joint_constraint2.tolerance_below = 1.0
+        joint_constraint2.weight = 1.0
+        #joint_constraint_list.append(joint_constraint2)
+
+        joint_constraint = JointConstraint()
+        joint_constraint.joint_name = 'shoulder_lift_joint'
+        joint_constraint.position = -1.37
+        joint_constraint.tolerance_above = 1.2
+        joint_constraint.tolerance_below = 1.2
+        joint_constraint.weight = 1.0
+        #joint_constraint_list.append(joint_constraint)
+
+
+        joint_constraint3 = JointConstraint()
+        joint_constraint3.joint_name = 'shoulder_pan_joint'
+        joint_constraint3.position = 0.0
+        joint_constraint3.tolerance_above = 2.5
+        joint_constraint3.tolerance_below = 2.9
+        joint_constraint3.weight = 1.0
+
+        joint_constraint4 = JointConstraint()
+        joint_constraint4.joint_name = 'wrist_1_joint'
+        joint_constraint4.position = -2.2
+        joint_constraint4.tolerance_above = 0.7
+        joint_constraint4.tolerance_below = 0.7
+        joint_constraint4.weight = 1.0
+
+        joint_constraint5 = JointConstraint()
+        joint_constraint5.joint_name = 'wrist_2_joint'
+        joint_constraint5.position = -1.5
+        joint_constraint5.tolerance_above = 1.0
+        joint_constraint5.tolerance_below = 1.0
+        joint_constraint5.weight = 1.0
+
+        joint_constraint6 = JointConstraint()
+        joint_constraint6.joint_name = 'wrist_3_joint'
+        joint_constraint6.position = 1.9
+        joint_constraint6.tolerance_above = 1.0
+        joint_constraint6.tolerance_below = 1.0
+        joint_constraint6.weight = 1.0
+
+
+        constraint_list = Constraints()
+        constraint_list.name = 'middle_of_travel'
+        # Append to other constraints
+        self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint)
+        self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint2)
+        self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint3)
+        self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint4)
+        self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint5)
+        #self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint6)
+
     def set_pose_goal(
         self,
         position: Union[Point, Tuple[float, float, float]],
@@ -496,7 +623,6 @@ class MoveIt2:
         """
         This is direct combination of `set_position_goal()` and `set_orientation_goal()`.
         """
-
         self.set_position_goal(
             position=position,
             frame_id=frame_id,
@@ -564,6 +690,60 @@ class MoveIt2:
         self.__move_action_goal.request.goal_constraints[
             -1
         ].position_constraints.append(constraint)
+
+    def set_path_goal(
+        self,
+        position: Union[Point, Tuple[float, float, float]],
+        frame_id: Optional[str] = None,
+        target_link: Optional[str] = None,
+        tolerance: float = 0.001,
+        weight: float = 1.0,
+    ):
+        """
+        Set Cartesian position goal of `target_link` with respect to `frame_id`.
+          - `frame_id` defaults to the base link
+          - `target_link` defaults to end effector
+        """
+
+        # Create new position constraint
+        constraint = PositionConstraint()
+
+        # Define reference frame and target link
+        constraint.header.frame_id = (
+            frame_id if frame_id is not None else self.__base_link_name
+        )
+        constraint.link_name = (
+            target_link if target_link is not None else self.__end_effector_name
+        )
+
+        # Define target position
+        constraint.constraint_region.primitive_poses.append(Pose())
+        if isinstance(position, Point):
+            constraint.constraint_region.primitive_poses[0].position = position
+        else:
+            constraint.constraint_region.primitive_poses[0].position.x = float(
+                position[0]
+            )
+            constraint.constraint_region.primitive_poses[0].position.y = float(
+                position[1]
+            )
+            constraint.constraint_region.primitive_poses[0].position.z = float(
+                position[2]
+            )
+
+        # Define goal region as a sphere with radius equal to the tolerance
+        constraint.constraint_region.primitives.append(SolidPrimitive())
+        constraint.constraint_region.primitives[0].type = 2  # Sphere
+        constraint.constraint_region.primitives[0].dimensions = [tolerance]
+
+        # Set weight of the constraint
+        constraint.weight = weight
+
+        # Append to other constraints
+        self.__move_action_goal.request.goal_constraints[
+            -1
+        ].position_constraints.append(constraint)
+
 
     def set_orientation_goal(
         self,
@@ -975,9 +1155,7 @@ class MoveIt2:
         ).motion_plan_response
 
         elapsed_time = time.time() - start_time
-        print(f"Time taken for kinematic {elapsed_time}")
         if MoveItErrorCodes.SUCCESS == res.error_code.val:
-            
             return res.trajectory.joint_trajectory
         else:
             self._node.get_logger().warn(
@@ -989,6 +1167,8 @@ class MoveIt2:
         self,
         max_step: float = 0.0025,
         wait_for_server_timeout_sec: Optional[float] = 1.0,
+        frame_id: Optional[str] = None,
+        waypoints: Optional[Pose] = None,
     ) -> Optional[JointTrajectory]:
 
         # Re-use request from move action goal
@@ -1007,6 +1187,11 @@ class MoveIt2:
         self.__cartesian_path_request.path_constraints = (
             self.__move_action_goal.request.path_constraints
         )
+
+        self.__cartesian_path_request.header.frame_id = (
+            frame_id if frame_id is not None else self.__base_link_name
+        )
+
         for (
             position_constraint
         ) in self.__cartesian_path_request.path_constraints.position_constraints:
@@ -1015,6 +1200,7 @@ class MoveIt2:
             orientation_constraint
         ) in self.__cartesian_path_request.path_constraints.orientation_constraints:
             orientation_constraint.header.stamp = stamp
+
         # no header in joint_constraint message type
 
         target_pose = Pose()
@@ -1029,8 +1215,10 @@ class MoveIt2:
             .orientation_constraints[-1]
             .orientation
         )
-
-        self.__cartesian_path_request.waypoints = [target_pose]
+        if waypoints is not None:
+            self.__cartesian_path_request.waypoints = [waypoints, target_pose]
+        else:
+            self.__cartesian_path_request.waypoints = [target_pose]
 
         if not self._plan_cartesian_path_service.wait_for_service(
             timeout_sec=wait_for_server_timeout_sec
@@ -1043,7 +1231,6 @@ class MoveIt2:
         start_time = time.time()        
         res = self._plan_cartesian_path_service.call(self.__cartesian_path_request)
         elapsed_time = time.time() - start_time
-        print(f"Time taken {elapsed_time}")
         if MoveItErrorCodes.SUCCESS == res.error_code.val:
             return res.solution.joint_trajectory
         else:
@@ -1051,6 +1238,7 @@ class MoveIt2:
                 f"Planning failed! Error code: {res.error_code.val}."
             )
             return None
+
 
     def _send_goal_async_move_action(
         self, wait_for_server_timeout_sec: Optional[float] = 1.0
@@ -1068,8 +1256,6 @@ class MoveIt2:
             self.__is_motion_requested = False
             return
 
-        #import pdb 
-        #pdb.set_trace()
         self.__send_goal_future_move_action = self.__move_action_client.send_goal_async(
             goal=self.__move_action_goal,
             feedback_callback=None,
@@ -1103,6 +1289,7 @@ class MoveIt2:
             self._node.get_logger().error(
                 f"Action '{self.__move_action_client._action_name}' was unsuccessful: {res.result().status}."
             )
+
         self.move_action_status = res.result().status
         self.__is_executing = False
 
@@ -1192,7 +1379,7 @@ class MoveIt2:
         move_action_goal.request.workspace_parameters.max_corner.z = 1.0
         # move_action_goal.request.start_state = "Set during request"
         move_action_goal.request.goal_constraints = [Constraints()]
-        # move_action_goal.request.path_constraints = "Ignored"
+        move_action_goal.request.path_constraints = Constraints()
         # move_action_goal.request.trajectory_constraints = "Ignored"
         # move_action_goal.request.reference_trajectories = "Ignored"
         # move_action_goal.request.pipeline_id = "Ignored"
