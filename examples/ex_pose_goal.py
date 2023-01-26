@@ -41,7 +41,7 @@ def main(args=None):
         end_effector_name=robot.end_effector_name(),
         group_name=robot.MOVE_GROUP_ARM,
         callback_group=callback_group,
-        execute_via_moveit=True,
+        execute_via_moveit=False,
         namespace=namespace,
     )
 

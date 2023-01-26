@@ -33,6 +33,21 @@ from sensor_msgs.msg import JointState
 from shape_msgs.msg import Mesh, MeshTriangle, SolidPrimitive
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
+
+def todict(obj):
+    if isinstance(obj, dict):
+        return dict((key.lstrip("_"), todict(val)) for key, val in obj.items())
+    elif hasattr(obj, "_ast"):
+        return todict(obj._ast())
+    elif hasattr(obj, "__iter__") and not isinstance(obj, str):
+        return [todict(v) for v in obj]
+    elif hasattr(obj, '__dict__'):
+        return todict(vars(obj))
+    elif hasattr(obj, '__slots__'):
+        return todict(dict((name, getattr(obj, name)) for name in getattr(obj, '__slots__')))
+    return obj
+
+
 class MoveIt2:
     """
     Python interface for MoveIt 2 that enables planning and execution of trajectories.
@@ -74,7 +89,7 @@ class MoveIt2:
 
         self._node.create_subscription(
             msg_type=JointState,
-            topic= "joint_states",
+            topic="joint_states",
             callback=self.__joint_state_callback,
             qos_profile=QoSProfile(
                 durability=QoSDurabilityPolicy.VOLATILE,
@@ -90,7 +105,7 @@ class MoveIt2:
             self.__move_action_client = ActionClient(
                 node=self._node,
                 action_type=MoveGroup,
-                action_name= namespace + "/move_action",
+                action_name=namespace + "/move_action",
                 goal_service_qos_profile=QoSProfile(
                     durability=QoSDurabilityPolicy.VOLATILE,
                     reliability=QoSReliabilityPolicy.RELIABLE,
@@ -127,7 +142,7 @@ class MoveIt2:
             # Otherwise create a separate service client for planning
             self._plan_kinematic_path_service = self._node.create_client(
                 srv_type=GetMotionPlan,
-                srv_name= namespace + "/plan_kinematic_path",
+                srv_name=namespace + "/plan_kinematic_path",
                 qos_profile=QoSProfile(
                     durability=QoSDurabilityPolicy.VOLATILE,
                     reliability=QoSReliabilityPolicy.RELIABLE,
@@ -141,7 +156,7 @@ class MoveIt2:
         # Create a separate service client for Cartesian planning
         self._plan_cartesian_path_service = self._node.create_client(
             srv_type=GetCartesianPath,
-            srv_name= namespace + "/compute_cartesian_path",
+            srv_name=namespace + "/compute_cartesian_path",
             qos_profile=QoSProfile(
                 durability=QoSDurabilityPolicy.VOLATILE,
                 reliability=QoSReliabilityPolicy.RELIABLE,
@@ -156,7 +171,7 @@ class MoveIt2:
         self.__follow_joint_trajectory_action_client = ActionClient(
             node=self._node,
             action_type=FollowJointTrajectory,
-            action_name= namespace + follow_joint_trajectory_action_name,
+            action_name=namespace + follow_joint_trajectory_action_name,
             goal_service_qos_profile=QoSProfile(
                 durability=QoSDurabilityPolicy.VOLATILE,
                 reliability=QoSReliabilityPolicy.RELIABLE,
@@ -220,7 +235,8 @@ class MoveIt2:
         self.__is_motion_requested = False
         self.move_action_status = GoalStatus.STATUS_SUCCEEDED
         self.__is_executing = False
-        self.__wait_until_executed_rate = self._node.create_rate(10.0)  #set rate to 10 otherwise too much cpu usage
+        self.__wait_until_executed_rate = self._node.create_rate(
+            10.0)  # set rate to 10 otherwise too much cpu usage
 
         # Event that enables waiting until async future is done
         self.__future_done_event = threading.Event()
@@ -263,9 +279,9 @@ class MoveIt2:
                 weight_orientation=weight_orientation,
             )
             self.__move_action_goal.request.start_state.is_diff = True
-            #self._node.get_logger().info(f"start_state = {self.__move_action_goal.request.start_state}")
+            # self._node.get_logger().info(f"start_state = {self.__move_action_goal.request.start_state}")
             # Define starting state as the current state
-            #self.__move_action_goal.request.start_state = None
+            # self.__move_action_goal.request.start_state = None
             if self.joint_state is not None:
 
                 self.__move_action_goal.request.start_state.joint_state = (
@@ -278,16 +294,16 @@ class MoveIt2:
 
         else:
             trajectory = self.plan(
-                    position=position,
-                    quat_xyzw=quat_xyzw,
-                    frame_id=frame_id,
-                    tolerance_position=tolerance_position,
-                    tolerance_orientation=tolerance_orientation,
-                    weight_position=weight_position,
-                    weight_orientation=weight_orientation,
-                    cartesian=cartesian,
-                    waypoints=waypoints,
-                )
+                position=position,
+                quat_xyzw=quat_xyzw,
+                frame_id=frame_id,
+                tolerance_position=tolerance_position,
+                tolerance_orientation=tolerance_orientation,
+                weight_position=weight_position,
+                weight_orientation=weight_orientation,
+                cartesian=cartesian,
+                waypoints=waypoints,
+            )
             # Plan via MoveIt 2 and then execute directly with the controller
             self.execute(
                 trajectory
@@ -411,10 +427,11 @@ class MoveIt2:
         elif self.joint_state is not None:
             self.__move_action_goal.request.start_state.joint_state = self.joint_state
 
-
         # Plan trajectory by sending a goal (blocking)
         if cartesian:
-            joint_trajectory = self._plan_cartesian_path(max_step=max_step, frame_id=frame_id, waypoints=waypoints)
+
+            joint_trajectory = self._plan_cartesian_path(
+                max_step=max_step, frame_id=frame_id, waypoints=waypoints)
         else:
             if self.__execute_via_moveit:
                 # Use action client
@@ -451,7 +468,8 @@ class MoveIt2:
             self.__is_motion_requested = False
             return
 
-        self._send_goal_async_follow_joint_trajectory(goal=follow_joint_trajectory_goal, wait_until_response=sync)
+        self._send_goal_async_follow_joint_trajectory(
+            goal=follow_joint_trajectory_goal, wait_until_response=sync)
 
     def wait_until_executed(self):
         """
@@ -552,14 +570,13 @@ class MoveIt2:
 
         joint_constraint_list = []
 
-
         joint_constraint2 = JointConstraint()
         joint_constraint2.joint_name = 'elbow_joint'
         joint_constraint2.position = 2.0
         joint_constraint2.tolerance_above = 1.0
         joint_constraint2.tolerance_below = 1.0
         joint_constraint2.weight = 1.0
-        #joint_constraint_list.append(joint_constraint2)
+        # joint_constraint_list.append(joint_constraint2)
 
         joint_constraint = JointConstraint()
         joint_constraint.joint_name = 'shoulder_lift_joint'
@@ -567,8 +584,7 @@ class MoveIt2:
         joint_constraint.tolerance_above = 1.2
         joint_constraint.tolerance_below = 1.2
         joint_constraint.weight = 1.0
-        #joint_constraint_list.append(joint_constraint)
-
+        # joint_constraint_list.append(joint_constraint)
 
         joint_constraint3 = JointConstraint()
         joint_constraint3.joint_name = 'shoulder_pan_joint'
@@ -598,16 +614,20 @@ class MoveIt2:
         joint_constraint6.tolerance_below = 1.0
         joint_constraint6.weight = 1.0
 
-
         constraint_list = Constraints()
         constraint_list.name = 'middle_of_travel'
         # Append to other constraints
-        self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint)
-        self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint2)
-        self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint3)
-        self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint4)
-        self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint5)
-        #self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint6)
+        self.__move_action_goal.request.path_constraints.joint_constraints.append(
+            joint_constraint)
+        self.__move_action_goal.request.path_constraints.joint_constraints.append(
+            joint_constraint2)
+        self.__move_action_goal.request.path_constraints.joint_constraints.append(
+            joint_constraint3)
+        self.__move_action_goal.request.path_constraints.joint_constraints.append(
+            joint_constraint4)
+        self.__move_action_goal.request.path_constraints.joint_constraints.append(
+            joint_constraint5)
+        # self.__move_action_goal.request.path_constraints.joint_constraints.append(joint_constraint6)
 
     def set_pose_goal(
         self,
@@ -743,7 +763,6 @@ class MoveIt2:
         self.__move_action_goal.request.goal_constraints[
             -1
         ].position_constraints.append(constraint)
-
 
     def set_orientation_goal(
         self,
@@ -1048,7 +1067,8 @@ class MoveIt2:
 
         msg.meshes.append(
             Mesh(
-                triangles=[MeshTriangle(vertex_indices=face) for face in mesh.faces],
+                triangles=[MeshTriangle(vertex_indices=face)
+                           for face in mesh.faces],
                 vertices=[
                     Point(x=vert[0], y=vert[1], z=vert[2]) for vert in mesh.vertices
                 ],
@@ -1148,8 +1168,8 @@ class MoveIt2:
             )
             return None
 
-        start_time = time.time()        
- 
+        start_time = time.time()
+
         res = self._plan_kinematic_path_service.call(
             self.__kinematic_path_request
         ).motion_plan_response
@@ -1227,9 +1247,11 @@ class MoveIt2:
                 f"Service '{self._plan_cartesian_path_service.srv_name}' is not yet available. Better luck next time!"
             )
             return None
-        #self.__cartesian_path_request.avoid_collisions = True
-        start_time = time.time()        
-        res = self._plan_cartesian_path_service.call(self.__cartesian_path_request)
+        # self.__cartesian_path_request.avoid_collisions = True
+        start_time = time.time()
+        # self._node.get_logger().warn(str(todict(self.__cartesian_path_request)))
+        res = self._plan_cartesian_path_service.call(
+            self.__cartesian_path_request)
         elapsed_time = time.time() - start_time
         if MoveItErrorCodes.SUCCESS == res.error_code.val:
             return res.solution.joint_trajectory
@@ -1238,7 +1260,6 @@ class MoveIt2:
                 f"Planning failed! Error code: {res.error_code.val}."
             )
             return None
-
 
     def _send_goal_async_move_action(
         self, wait_for_server_timeout_sec: Optional[float] = 1.0
@@ -1284,7 +1305,7 @@ class MoveIt2:
         )
 
     def __result_callback_move_action(self, res):
-    
+
         if res.result().status != GoalStatus.STATUS_SUCCEEDED:
             self._node.get_logger().error(
                 f"Action '{self.__move_action_client._action_name}' was unsuccessful: {res.result().status}."
@@ -1528,10 +1549,12 @@ def init_joint_state(
 
     joint_state.name = joint_names
     joint_state.position = (
-        joint_positions if joint_positions is not None else [0.0] * len(joint_names)
+        joint_positions if joint_positions is not None else [
+            0.0] * len(joint_names)
     )
     joint_state.velocity = (
-        joint_velocities if joint_velocities is not None else [0.0] * len(joint_names)
+        joint_velocities if joint_velocities is not None else [
+            0.0] * len(joint_names)
     )
     joint_state.effort = (
         joint_effort if joint_effort is not None else [0.0] * len(joint_names)
