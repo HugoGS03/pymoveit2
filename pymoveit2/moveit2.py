@@ -32,7 +32,7 @@ from rclpy.qos import (
 from sensor_msgs.msg import JointState
 from shape_msgs.msg import Mesh, MeshTriangle, SolidPrimitive
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-
+import rclpy
 
 def todict(obj):
     if isinstance(obj, dict):
@@ -84,22 +84,10 @@ class MoveIt2:
         """
         self._node = node
         self._callback_group = callback_group
-
+        self.namespace = namespace
         # Create subscriber for current joint states
 
-        self._node.create_subscription(
-            msg_type=JointState,
-            topic="joint_states",
-            callback=self.__joint_state_callback,
-            qos_profile=QoSProfile(
-                durability=QoSDurabilityPolicy.VOLATILE,
-                reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                history=QoSHistoryPolicy.KEEP_LAST,
-                depth=1,
-            ),
-            callback_group=self._callback_group,
-        )
-
+        
         if execute_via_moveit:
             # Create action client for move action
             self.__move_action_client = ActionClient(
@@ -152,7 +140,7 @@ class MoveIt2:
                 callback_group=callback_group,
             )
             self.__kinematic_path_request = GetMotionPlan.Request()
-
+        
         # Create a separate service client for Cartesian planning
         self._plan_cartesian_path_service = self._node.create_client(
             srv_type=GetCartesianPath,
@@ -172,43 +160,45 @@ class MoveIt2:
             node=self._node,
             action_type=FollowJointTrajectory,
             action_name=namespace + follow_joint_trajectory_action_name,
-            goal_service_qos_profile=QoSProfile(
-                durability=QoSDurabilityPolicy.VOLATILE,
-                reliability=QoSReliabilityPolicy.RELIABLE,
-                history=QoSHistoryPolicy.KEEP_LAST,
-                depth=1,
-            ),
-            result_service_qos_profile=QoSProfile(
-                durability=QoSDurabilityPolicy.VOLATILE,
-                reliability=QoSReliabilityPolicy.RELIABLE,
-                history=QoSHistoryPolicy.KEEP_LAST,
-                depth=5,
-            ),
-            cancel_service_qos_profile=QoSProfile(
-                durability=QoSDurabilityPolicy.VOLATILE,
-                reliability=QoSReliabilityPolicy.RELIABLE,
-                history=QoSHistoryPolicy.KEEP_LAST,
-                depth=5,
-            ),
-            feedback_sub_qos_profile=QoSProfile(
-                durability=QoSDurabilityPolicy.VOLATILE,
-                reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                history=QoSHistoryPolicy.KEEP_LAST,
-                depth=1,
-            ),
-            status_sub_qos_profile=QoSProfile(
-                durability=QoSDurabilityPolicy.VOLATILE,
-                reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                history=QoSHistoryPolicy.KEEP_LAST,
-                depth=1,
-            ),
-            callback_group=self._callback_group,
+            callback_group=self._callback_group,)
+        '''         
+        goal_service_qos_profile=QoSProfile(
+            durability=QoSDurabilityPolicy.VOLATILE,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10,
+        ),
+        result_service_qos_profile=QoSProfile(
+            durability=QoSDurabilityPolicy.VOLATILE,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=5,
+        ),
+        cancel_service_qos_profile=QoSProfile(
+            durability=QoSDurabilityPolicy.VOLATILE,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=5,
+        ),
+        feedback_sub_qos_profile=QoSProfile(
+            durability=QoSDurabilityPolicy.VOLATILE,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10,
+        ),
+        status_sub_qos_profile=QoSProfile(
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10,
+        ),            
         )
-
+        '''
+        
         self.__collision_object_publisher = self._node.create_publisher(
             CollisionObject, namespace + "/collision_object", 10
         )
-
+        
         self.__joint_state_mutex = threading.Lock()
         self.__joint_state = None
         self.__new_joint_state_available = False
@@ -230,6 +220,9 @@ class MoveIt2:
         self.__base_link_name = base_link_name
         self.__end_effector_name = end_effector_name
         self.__group_name = group_name
+        #import pdb; pdb.set_trace()
+        #print(self.__joint_names)
+
 
         # Internal states that monitor the current motion requests and execution
         self.__is_motion_requested = False
@@ -237,6 +230,19 @@ class MoveIt2:
         self.__is_executing = False
         self.__wait_until_executed_rate = self._node.create_rate(
             10.0)  # set rate to 10 otherwise too much cpu usage
+
+        self._node.create_subscription(
+            msg_type=JointState,
+            topic=namespace + "/joint_states",
+            callback=self.__joint_state_callback,
+            qos_profile=QoSProfile(
+                durability=QoSDurabilityPolicy.VOLATILE,
+                reliability=QoSReliabilityPolicy.BEST_EFFORT,
+                history=QoSHistoryPolicy.KEEP_LAST,
+                depth=1,
+            ),
+            callback_group=self._callback_group,
+        )
 
         # Event that enables waiting until async future is done
         self.__future_done_event = threading.Event()
@@ -253,20 +259,22 @@ class MoveIt2:
         cartesian: bool = False,
         weight_orientation: float = 1.0,
         waypoints: Optional[Pose] = None,
+        sync: bool = False,
     ):
         """
         Plan and execute motion based on previously set goals. Optional arguments can be
         passed in to internally use `set_pose_goal()` to define a goal during the call.
         """
-
+        
         if self.__execute_via_moveit:
+            
             if self.__ignore_new_calls_while_executing and self.__is_executing:
                 self._node.get_logger().warn(
-                    "Controller is already following a trajectory. Skipping motion."
+                    "1Controller is already following a trajectory. Skipping motion."
                 )
                 return
+            
             self.__is_motion_requested = True
-
             # Set goal
             self.set_pose_goal(
                 position=position,
@@ -291,6 +299,7 @@ class MoveIt2:
             self._send_goal_async_move_action()
             # Clear all previous goal constrains
             self.clear_goal_constraints()
+             
 
         else:
             trajectory = self.plan(
@@ -304,11 +313,12 @@ class MoveIt2:
                 cartesian=cartesian,
                 waypoints=waypoints,
             )
+          
             # Plan via MoveIt 2 and then execute directly with the controller
             self.execute(
-                trajectory
+                trajectory, sync
             )
-
+           
     def move_to_configuration(
         self,
         joint_positions: List[float],
@@ -325,7 +335,7 @@ class MoveIt2:
         if self.__execute_via_moveit:
             if self.__ignore_new_calls_while_executing and self.__is_executing:
                 self._node.get_logger().warn(
-                    "Controller is already following a trajectory. Skipping motion."
+                    "2Controller is already following a trajectory. Skipping motion."
                 )
                 return
             self.__is_motion_requested = True
@@ -386,7 +396,7 @@ class MoveIt2:
         duration, `None` is returned. To plan from the different position than the current
         one, optional argument `start_` can be defined.
         """
-
+        self._node.get_logger().info("Planning request received")
         if position is not None:
             self.set_position_goal(
                 position=position,
@@ -410,7 +420,7 @@ class MoveIt2:
                 tolerance=tolerance_joint_position,
                 weight=weight_joint_position,
             )
-
+        
         # Define starting state for the plan (default to the current state)
         if start_joint_state is not None:
             if isinstance(start_joint_state, JointState):
@@ -425,6 +435,7 @@ class MoveIt2:
                     )
                 )
         elif self.joint_state is not None:
+            print("Setting joint states")
             self.__move_action_goal.request.start_state.joint_state = self.joint_state
 
         # Plan trajectory by sending a goal (blocking)
@@ -442,18 +453,21 @@ class MoveIt2:
 
         # Clear all previous goal constrains
         self.clear_goal_constraints()
-
+        self._node.get_logger().info("Planning done")
         return joint_trajectory
 
     def execute(self, joint_trajectory: JointTrajectory, sync: bool = False):
         """
         Execute joint_trajectory by communicating directly with the controller.
         """
-
+        self._node.get_logger().info("Execution request received")
         if self.__ignore_new_calls_while_executing and self.__is_executing:
             self._node.get_logger().warn(
-                "Controller is already following a trajectory. Skipping motion."
+                f"3Controller is already following a trajectory. Skipping motion. {self.goal_handle}, {self.__is_executing }, {self.namespace}"
             )
+            if self.goal_handle is None:
+                self.__is_executing = False
+
             return
         self.__is_motion_requested = True
 
@@ -467,15 +481,19 @@ class MoveIt2:
             )
             self.__is_motion_requested = False
             return
-
+        '''
+        self._send_goal_sync_follow_joint_trajectory(
+            goal=follow_joint_trajectory_goal)
+        '''
+       
         self._send_goal_async_follow_joint_trajectory(
             goal=follow_joint_trajectory_goal, wait_until_response=sync)
-
+      
     def wait_until_executed(self):
         """
         Wait until the previously requested motion is finalised through either a success or failure.
         """
-
+        
         if not self.__is_motion_requested:
             self._node.get_logger().warn(
                 "Cannot wait until motion is executed (no motion is in progress)."
@@ -502,7 +520,7 @@ class MoveIt2:
         follow_joint_trajectory_goal = init_follow_joint_trajectory_goal(
             joint_trajectory=joint_trajectory
         )
-
+        
         self._send_goal_async_follow_joint_trajectory(
             goal=follow_joint_trajectory_goal,
             wait_until_response=sync,
@@ -1096,7 +1114,7 @@ class MoveIt2:
         self.__collision_object_publisher.publish(msg)
 
     def __joint_state_callback(self, msg: JointState):
-
+        #import pdb;pdb.set_trace()
         # Update only if all relevant joints are included in the message
         for joint_name in self.joint_names:
             if not joint_name in msg.name:
@@ -1313,14 +1331,98 @@ class MoveIt2:
 
         self.move_action_status = res.result().status
         self.__is_executing = False
+    
+    def _feedback_callback(self, feedback):
+        
+        pass
+    def _send_goal_sync_follow_joint_trajectory(
+        self,
+        goal: FollowJointTrajectory,
+        wait_for_server_timeout_sec: Optional[float] = 10.0,
+        wait_until_response: bool = False,
+    ):
+        try:
 
+            
+            if not self.__follow_joint_trajectory_action_client.wait_for_server(
+                timeout_sec=wait_for_server_timeout_sec
+            ):
+                self._node.get_logger().warn(
+                    f"Action server '{self.__follow_joint_trajectory_action_client._action_name}' is not yet available. Better luck next time!"
+                )
+                self.__is_motion_requested = False
+                return None
+            if len(goal.trajectory.points) < 3:
+                return None
+            
+            self._node.get_logger().info(f"**** before sending {wait_until_response}")
+            self.__follow_joint_trajectory_action_client.send_goal(goal) #, self._feedback_callback)
+            self._node.get_logger().info(f"**** completed {wait_until_response}")
+            return
+     
+            rclpy.spin_until_future_complete(self._node, goal_future)
+            goal_handle = goal_future.result()
+        
+            if goal_handle is None:
+                raise RuntimeError(
+                    'Exception while sending goal: {!r}'.format(goal_future.exception()))
+
+            if not goal_handle.accepted:
+                print('Goal was rejected.')
+                # no need to potentially cancel the goal anymore
+                goal_handle = None
+                return
+            
+            print('Goal accepted with ID: {}\n'.format(bytes(goal_handle.goal_id.uuid).hex()))
+            result_future = goal_handle.get_result_async()
+            rclpy.spin_until_future_complete(self._node, result_future)
+      
+            result = result_future.result()
+            
+            if result is None:
+                raise RuntimeError(
+                    'Exception while getting result: {!r}'.format(result_future.exception()))
+
+            # no need to potentially cancel the goal anymore
+            goal_handle = None
+            print('goal completed')
+        finally:
+            pass
+            '''
+            if (goal_handle is not None and
+                (GoalStatus.STATUS_ACCEPTED == goal_handle.status or
+                GoalStatus.STATUS_EXECUTING == goal_handle.status)):
+                print('Canceling goal...')
+                cancel_future = goal_handle.cancel_goal_async()
+                rclpy.spin_until_future_complete(node, cancel_future)
+
+                cancel_response = cancel_future.result()
+
+                if cancel_response is None:
+                    raise RuntimeError(
+                        'Exception while canceling goal: {!r}'.format(cancel_future.exception()))
+
+                if len(cancel_response.goals_canceling) == 0:
+                    raise RuntimeError('Failed to cancel goal')
+                if len(cancel_response.goals_canceling) > 1:
+                    raise RuntimeError('More than one goal canceled')
+                if cancel_response.goals_canceling[0].goal_id != goal_handle.goal_id:
+                    raise RuntimeError('Canceled goal with incorrect goal ID')
+                print('Goal canceled.')
+            '''
     def _send_goal_async_follow_joint_trajectory(
         self,
         goal: FollowJointTrajectory,
-        wait_for_server_timeout_sec: Optional[float] = 1.0,
+        wait_for_server_timeout_sec: Optional[float] = 8.0,
         wait_until_response: bool = False,
     ):
-
+        
+        if len(goal.trajectory.points) < 3:
+            self._node.get_logger().error(
+                f"Goal has fewer points {len(goal.trajectory.points)}"
+            )
+            return None
+        
         if not self.__follow_joint_trajectory_action_client.wait_for_server(
             timeout_sec=wait_for_server_timeout_sec
         ):
@@ -1329,29 +1431,95 @@ class MoveIt2:
             )
             self.__is_motion_requested = False
             return None
-
-        action_result = self.__follow_joint_trajectory_action_client.send_goal_async(
+        
+        goal_handle_future = self.__follow_joint_trajectory_action_client.send_goal_async(
             goal=goal,
             feedback_callback=None,
         )
+        self.__future_done_event.clear()
+        goal_handle_future.add_done_callback(self.goal_response_callback)
+        if not self.__future_done_event.wait(timeout=wait_for_server_timeout_sec):
+            self.__is_executing = False
+            self._node.get_logger().warn(
+                f"Timeout occurred {self.namespace}"
+                )
+            if self.goal_handle is not None:
+                self.goal_handle.cancel_goal_async()
+                self._node.get_logger().warn(
+                    f"Cancelling goal {self.namespace}"
+                )
+            
+            #self._node.get_logger().info(f"{self.namespace} , {str(todict(goal))}")
+            
+           
+        self.__is_executing = False
+        self.__future_done_event.clear()
+        
+        self._node.get_logger().info(
+                f"Returning from async send goal call {self.namespace}"
+            )
+    def feedback_callback(self, feedback_msg):
+        
+        feedback = feedback_msg.feedback
+        #self._node.get_logger().info('Received feedback: {0}'.format(feedback))
 
-        action_result.add_done_callback(
-            self.__response_callback_follow_joint_trajectory
-        )
+    def goal_response_callback(self, future):
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self._node.get_logger().info('Goal rejected :(')
+            self.__is_motion_requested = False
+            self.__is_executing = False
+            self.goal_handle = None
+            self.__future_done_event.set()
+            return
+        
+        self.goal_handle = goal_handle
+        self._node.get_logger().info(f"Goal accepted  {self.namespace}")
+        self.__is_executing = True
+        self.__is_motion_requested = False
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(self.get_result_callback)
 
+
+    def get_result_callback(self, future):
+        result = future.result().result
+        self._node.get_logger().info(f"Goal finished with status: {future.result().status} {self.namespace}")
+        self.goal_handle = None
+        self.__is_executing = False
+        self.__future_done_event.set()
+        self.move_action_status = future.result().status
+
+
+        
+        '''
+        #action_result.add_done_callback(
+        #    self.__response_callback_follow_joint_trajectory
+        #)
+        
         if wait_until_response:
+            
             self.__future_done_event.clear()
             action_result.add_done_callback(
                 self.__response_callback_with_event_set_follow_joint_trajectory
             )
+            #self._get_result_future=action_result.get_result_async()
+            self._node.get_logger().info(f"before waiting; is_executing={self.__is_executing}")
             self.__future_done_event.wait(timeout=wait_for_server_timeout_sec)
+            self._node.get_logger().info(f"after waiting  {self.__is_executing} ")            
+            self.__is_executing = False
+       
         else:
             action_result.add_done_callback(
                 self.__response_callback_follow_joint_trajectory
             )
+        '''
+     
+    
+    def __result_callback_with_event(self, response):
+        self.__response_callback_follow_joint_trajectory(response)
+        self.__future_done_event.set()
 
     def __response_callback_follow_joint_trajectory(self, response):
-
         goal_handle = response.result()
         if not goal_handle.accepted:
             self._node.get_logger().warn(
@@ -1371,18 +1539,26 @@ class MoveIt2:
         )
 
     def __response_callback_with_event_set_follow_joint_trajectory(self, response):
-
-        self.__response_callback_follow_joint_trajectory(response)
-        self.__future_done_event.set()
+        #import pdb; pdb.set_trace()
+       
+        goal_handle = response.result()
+        self._node.get_logger().info(f"Goal acceptance status {goal_handle.status}")  
+        if  goal_handle.accepted:
+            #self._node.get_logger().info(f"1Goal accepted {goal_handle.status}")  
+            self.__response_callback_follow_joint_trajectory(response)
+        
 
     def __result_callback_follow_joint_trajectory(self, res):
-
         if res.result().status != GoalStatus.STATUS_SUCCEEDED:
             self._node.get_logger().error(
                 f"Action '{self.__follow_joint_trajectory_action_client._action_name}' was unsuccessful: {res.result().status}."
             )
+        
+        self._node.get_logger().info(f"Result received {self.__is_executing}, {res.result().status}")
+        
+        self.__future_done_event.set()
         self.move_action_status = res.result().status
-        self.__is_executing = False
+        
 
     @classmethod
     def __init_move_action_goal(

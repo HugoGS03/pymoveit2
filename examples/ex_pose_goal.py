@@ -26,7 +26,7 @@ def main(args=None):
     moveit_node.declare_parameter("position", [0.7, 0.0, 0.04])
     moveit_node.declare_parameter("quat_xyzw", [1.0, 0.0, 0.0, 0.0])
     moveit_node.declare_parameter("cartesian", True)
-    moveit_node.declare_parameter("namespace", "/robot1")
+    moveit_node.declare_parameter("namespace", "/arm1")
     namespace = moveit_node.get_parameter("namespace").get_parameter_value().string_value
 
     print(namespace)
@@ -80,8 +80,11 @@ def main(args=None):
         f"Moving to {{position: {list(position)}, quat_xyzw: {list(quat_xyzw)}}}"
     )
 
-    moveit2.move_to_pose(position=position, quat_xyzw=quat_xyzw, cartesian=cartesian)
-    moveit2.wait_until_executed()
+    moveit2.move_to_pose(position=position, quat_xyzw=quat_xyzw, cartesian=cartesian, sync=True)
+  
+    #print(f"*dd** {moveit2._MoveIt2__execute_via_moveit} {moveit2._MoveIt2__ignore_new_calls_while_executing} {moveit2._MoveIt2__is_motion_requested}")
+        
+    #moveit2.wait_until_executed()
     '''
     moveit2_gripper.close()
     moveit2_gripper.wait_until_executed()
