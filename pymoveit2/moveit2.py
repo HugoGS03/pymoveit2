@@ -31,7 +31,7 @@ from rclpy.qos import (
 from sensor_msgs.msg import JointState
 from shape_msgs.msg import Mesh, MeshTriangle, SolidPrimitive
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-
+import time
 
 class MoveIt2:
     """
@@ -46,10 +46,11 @@ class MoveIt2:
         base_link_name: str,
         end_effector_name: str,
         group_name: str = "arm",
+        namespace_prefix: str = "",
         execute_via_moveit: bool = False,
         ignore_new_calls_while_executing: bool = False,
         callback_group: Optional[CallbackGroup] = None,
-        follow_joint_trajectory_action_name: str = "joint_trajectory_controller/follow_joint_trajectory",
+        follow_joint_trajectory_action_name: str = "arm_controller/follow_joint_trajectory",
     ):
         """
         Construct an instance of `MoveIt2` interface.
@@ -68,12 +69,13 @@ class MoveIt2:
         """
 
         self._node = node
+        self.namespace_prefix = namespace_prefix
         self._callback_group = callback_group
 
         # Create subscriber for current joint states
         self._node.create_subscription(
             msg_type=JointState,
-            topic="joint_states",
+            topic=self.namespace_prefix + "joint_states",
             callback=self.__joint_state_callback,
             qos_profile=QoSProfile(
                 durability=QoSDurabilityPolicy.VOLATILE,
@@ -89,7 +91,7 @@ class MoveIt2:
             self.__move_action_client = ActionClient(
                 node=self._node,
                 action_type=MoveGroup,
-                action_name="move_action",
+                action_name=self.namespace_prefix + "move_action",
                 goal_service_qos_profile=QoSProfile(
                     durability=QoSDurabilityPolicy.VOLATILE,
                     reliability=QoSReliabilityPolicy.RELIABLE,
@@ -126,7 +128,7 @@ class MoveIt2:
             # Otherwise create a separate service client for planning
             self._plan_kinematic_path_service = self._node.create_client(
                 srv_type=GetMotionPlan,
-                srv_name="plan_kinematic_path",
+                srv_name=self.namespace_prefix + "plan_kinematic_path",
                 qos_profile=QoSProfile(
                     durability=QoSDurabilityPolicy.VOLATILE,
                     reliability=QoSReliabilityPolicy.RELIABLE,
@@ -140,7 +142,7 @@ class MoveIt2:
         # Create a separate service client for Cartesian planning
         self._plan_cartesian_path_service = self._node.create_client(
             srv_type=GetCartesianPath,
-            srv_name="compute_cartesian_path",
+            srv_name=self.namespace_prefix + "compute_cartesian_path",
             qos_profile=QoSProfile(
                 durability=QoSDurabilityPolicy.VOLATILE,
                 reliability=QoSReliabilityPolicy.RELIABLE,
@@ -155,7 +157,7 @@ class MoveIt2:
         self.__follow_joint_trajectory_action_client = ActionClient(
             node=self._node,
             action_type=FollowJointTrajectory,
-            action_name=follow_joint_trajectory_action_name,
+            action_name=self.namespace_prefix + follow_joint_trajectory_action_name,
             goal_service_qos_profile=QoSProfile(
                 durability=QoSDurabilityPolicy.VOLATILE,
                 reliability=QoSReliabilityPolicy.RELIABLE,
@@ -190,7 +192,7 @@ class MoveIt2:
         )
 
         self.__collision_object_publisher = self._node.create_publisher(
-            CollisionObject, "/collision_object", 10
+            CollisionObject, self.namespace_prefix + "collision_object", 10
         )
 
         self.__joint_state_mutex = threading.Lock()
@@ -223,6 +225,7 @@ class MoveIt2:
         # Event that enables waiting until async future is done
         self.__future_done_event = threading.Event()
 
+
     def move_to_pose(
         self,
         position: Union[Point, Tuple[float, float, float]],
@@ -239,6 +242,10 @@ class MoveIt2:
         Plan and execute motion based on previously set goals. Optional arguments can be
         passed in to internally use `set_pose_goal()` to define a goal during the call.
         """
+
+        # Make sure and wait until self.__joint_state contains robot state via subcription call
+        while self.__joint_state is None:
+            time.sleep(0.01)
 
         if self.__execute_via_moveit:
             if self.__ignore_new_calls_while_executing and self.__is_executing:
@@ -892,6 +899,7 @@ class MoveIt2:
         self.__collision_object_publisher.publish(msg)
 
     def __joint_state_callback(self, msg: JointState):
+
         # Update only if all relevant joints are included in the message
         for joint_name in self.joint_names:
             if not joint_name in msg.name:
@@ -1216,7 +1224,7 @@ class MoveIt2:
         # Service client for IK
         self.__compute_ik_client = self._node.create_client(
             srv_type=GetPositionIK,
-            srv_name="compute_ik",
+            srv_name=self.namespace_prefix + "compute_ik",
             callback_group=self._callback_group,
         )
 
