@@ -1,0 +1,1 @@
+/home/alumno/tfg/detercoords/last-ros2/build/pymoveit2/ament_cmake_core/pymoveit2Config-version.cmake
